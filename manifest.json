@@ -13,5 +13,12 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
+  ],
+  "id": "./",
+  "scope": "./",
+  "description": "Retour vidéo différé pour l'entraînement sportif",
+  "lang": "fr",
+  "display_override": [
+    "standalone"
   ]
 }

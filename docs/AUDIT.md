@@ -2,6 +2,24 @@
 
 Date : 2026-10-01 · Périmètre : `index.html` (1329 lignes), `sw.js`, `manifest.json`, `README.md`. Aucun code applicatif n'a été modifié.
 
+## 0. État d'avancement (mise à jour après implémentation)
+
+Les 7 lots ont été réalisés dans la même branche. Vérifié par un test automatique (`npm test`, Chromium, caméra factice) : retard stable à chaque écran, pause, pas image, saut, curseur, retour auto au direct, ralenti 0,5× sans retour en arrière, pinch qui garde le zoom, double tap, lecture en zoom, zoom lié, mémoire bornée avec rotation des époques, arrêt/redémarrage. **Rien n'a été testé sur Safari ni sur un iPad** : à valider sur ton iPad avant de fusionner (surtout le positionnement dans les fichiers MP4 de Safari et le passage d'une époque à l'autre).
+
+| Lot | Réalisé | Reste / limites |
+|---|---|---|
+| 1 Gestes | Pointer Events, pinch centré sur les doigts, pan borné, double tap fiable, HUD masqué `inert`, molette, pinch trackpad, clavier | Pinch Safari de bureau (événements `gesture*`) non testé |
+| 2 Lecture | Double tampon vidéo, attente de `loadedmetadata`/`seeked`, rafraîchissement seulement quand il manque de la vidéo, ralenti sans retour arrière, icône synchronisée par événements | `requestVideoFrameCallback` non utilisé : le pas image reste basé sur `currentTime` (1/fps réel) |
+| 3 Cycle de vie | Wake Lock, caméra perdue → message + « Reprendre », fin de séance propre, garde double clic, `frameRate` sans `min`, erreurs affichées dans l'interface, choix de la caméra | — |
+| 4 PWA | Cache versionné en stale-while-revalidate, bandeau « Nouvelle version disponible », safe areas, `100dvh` | Icône `apple-touch-icon` laissée en SVG (OK d'après toi) |
+| 5 Mémoire | Niveau B (époques de 2 min, ≈ 3,5 min de tampon ≈ 130 Mo), indépendant de la durée de séance | Niveau C (WebCodecs) non fait : à reconsidérer seulement si le niveau B pose problème sur iPad |
+| 6 Structure/CI | Modules ES, un seul gabarit d'écran, test Playwright, workflow GitHub Actions | Pas d'ESLint/Prettier ni `@ts-check` (non ajoutés pour éviter du bruit) |
+| 7 UX/UI | Cibles ≥ 36–40 px, textes plus grands, compte à rebours « Disponible dans N s », zoom lié optionnel, réglages mémorisés, verrou par appui long, plein écran quittable (Échap), affichage du tampon | Mise en page portrait sommaire ; pas de vérification visuelle sur iPad |
+
+Les sections suivantes décrivent l'état **avant** les corrections.
+
+---
+
 ## 1. Résumé
 
 Le principe fonctionne, mais le moteur de lecture repose sur un mécanisme fragile : **à chaque seconde, tous les morceaux enregistrés sont recollés en un nouveau fichier vidéo, et les 3 lecteurs rechargent leur source**. Ce choix explique l'essentiel des « petits bugs » que tu décris (sauts, arrêts, comportement bizarre au rembobinage, à la pause, après un pinch) et il fait aussi croître la mémoire sans limite.
