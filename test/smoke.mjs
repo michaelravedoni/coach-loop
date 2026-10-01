@@ -99,7 +99,8 @@ try {
   const s1 = await lag(1);
   await wait(3000);
   const grow = (await lag(1)) - s1;
-  assert.ok(grow > 1 && grow < 2, `ralenti 0,5× : le retard grandit de ${grow.toFixed(2)} s en 3 s`);
+  const diag = JSON.stringify(await player(1, (p) => ({ state: p.state, want: p.wantPlay, paused: p.video.paused, ended: p.video.ended, ready: p.video.readyState, rate: p.video.playbackRate, loading: p.loading })));
+  assert.ok(grow > 1 && grow < 2, `ralenti 0,5× : le retard grandit de ${grow.toFixed(2)} s en 3 s (${diag})`);
 
   // HUD masqué = inerte
   assert.equal(await player(2, (p) => p.el.hudBottom.inert), true);
