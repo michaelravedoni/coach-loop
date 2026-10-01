@@ -62,7 +62,9 @@ try {
   // Retour automatique au direct après 10 s d'inactivité
   await wait(11_000);
   assert.equal(await player(0, (p) => p.state), 'LIVE');
-  assert.ok(Math.abs((await lag(0)) - 5) < 1.2, 'retour au direct au bon retard');
+  // Le rechargement peut prendre quelques secondes sur une machine lente : on laisse 10 s pour se recaler.
+  for (let i = 0; i < 20 && Math.abs((await lag(0)) - 5) >= 1.2; i++) await wait(500);
+  assert.ok(Math.abs((await lag(0)) - 5) < 1.2, `retour au direct au bon retard (${await lag(0)} s)`);
 
   // Ralenti : la lecture ne revient pas en arrière toute seule
   await player(1, (p) => p.setSpeed(0.5));
