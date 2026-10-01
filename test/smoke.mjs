@@ -97,10 +97,15 @@ try {
   await player(1, (p) => p.setSpeed(0.5));
   await wait(1500);
   const s1 = await lag(1);
-  await wait(3000);
+  // Relevé toutes les 250 ms pendant 3 s (utile pour comprendre un échec sur une machine lente)
+  const trace = [];
+  for (let i = 0; i < 12; i++) {
+    await wait(250);
+    trace.push(await player(1, (p) => [+p.pos().toFixed(2), p.video.currentTime.toFixed(2), p.src.url.slice(-6), p.video.paused ? 'P' : 'p', p.video.readyState, p.loading ? 'L' : '-', p.video.playbackRate].join('|')));
+  }
   const grow = (await lag(1)) - s1;
   const diag = JSON.stringify(await player(1, (p) => ({ state: p.state, want: p.wantPlay, paused: p.video.paused, ended: p.video.ended, ready: p.video.readyState, rate: p.video.playbackRate, loading: p.loading })));
-  assert.ok(grow > 1 && grow < 2, `ralenti 0,5× : le retard grandit de ${grow.toFixed(2)} s en 3 s (${diag})`);
+  assert.ok(grow > 1 && grow < 2, `ralenti 0,5× : le retard grandit de ${grow.toFixed(2)} s en 3 s (${diag}) trace: ${trace.join(' ; ')}`);
 
   // HUD masqué = inerte
   assert.equal(await player(2, (p) => p.el.hudBottom.inert), true);
