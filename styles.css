@@ -85,6 +85,8 @@ body {
   transform-origin: center center;
   will-change: transform;
 }
+/* La vidéo de réserve reste « visible » mais passe derrière : le navigateur continue
+   à la décoder et à présenter ses images, on la fait passer devant quand elle est prête. */
 .video-stack video {
   position: absolute;
   inset: 0;
@@ -92,9 +94,9 @@ body {
   height: 100%;
   object-fit: contain;
   pointer-events: none;
-  opacity: 0;
+  z-index: 0;
 }
-.video-stack video.on { opacity: 1; }
+.video-stack video.on { z-index: 1; }
 
 /* Grille de repères de posture */
 .grid-overlay {

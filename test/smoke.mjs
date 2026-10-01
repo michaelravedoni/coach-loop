@@ -66,6 +66,33 @@ try {
   for (let i = 0; i < 20 && Math.abs((await lag(0)) - 5) >= 1.2; i++) await wait(500);
   assert.ok(Math.abs((await lag(0)) - 5) < 1.2, `retour au direct au bon retard (${await lag(0)} s)`);
 
+  // Pause pendant un rechargement en arrière-plan : la pause doit être respectée
+  // (l'écran 1 a un retard de 5 s, il recharge souvent).
+  let caught = false;
+  for (let i = 0; i < 600 && !caught; i++) {
+    caught = await player(0, (p) => {
+      if (p.state === 'LIVE' && p.loading) { p.togglePlay(); return true; }
+      return false;
+    });
+    if (!caught) await wait(25);
+  }
+  assert.ok(caught, 'un rechargement a été intercepté');
+  await wait(2500);
+  assert.equal(await player(0, (p) => p.video.paused), true, 'la pause survit à un rechargement en cours');
+  await player(0, (p) => p.returnToLive());
+  await wait(1500);
+
+  // Verrou : un appui long déverrouille et ne reverrouille pas au relâchement
+  await page.click('#lockBtn');
+  assert.equal(await page.evaluate(() => document.getElementById('consolePanel').classList.contains('is-locked')), true);
+  const lockBox = await page.locator('#lockBtn').boundingBox();
+  await page.mouse.move(lockBox.x + lockBox.width / 2, lockBox.y + lockBox.height / 2);
+  await page.mouse.down();
+  await wait(1300);
+  await page.mouse.up();
+  await wait(200);
+  assert.equal(await page.evaluate(() => document.getElementById('consolePanel').classList.contains('is-locked')), false, 'le verrou reste déverrouillé');
+
   // Ralenti : la lecture ne revient pas en arrière toute seule
   await player(1, (p) => p.setSpeed(0.5));
   await wait(1500);

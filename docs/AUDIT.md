@@ -16,6 +16,20 @@ Les 7 lots ont été réalisés dans la même branche. Vérifié par un test aut
 | 6 Structure/CI | Modules ES, un seul gabarit d'écran, test Playwright, workflow GitHub Actions | Pas d'ESLint/Prettier ni `@ts-check` (non ajoutés pour éviter du bruit) |
 | 7 UX/UI | Cibles ≥ 36–40 px, textes plus grands, compte à rebours « Disponible dans N s », zoom lié optionnel, réglages mémorisés, verrou par appui long, plein écran quittable (Échap), affichage du tampon | Mise en page portrait sommaire ; pas de vérification visuelle sur iPad |
 
+### Correctifs après l'essai local (2026-10-01)
+
+Retours de Michael : flashs noirs récurrents, sauts de timeline / écran noir / play-pause bloqué en manipulant un lecteur, verrou qui se reverrouille.
+
+| Symptôme | Cause (lue dans le code, reproduite pour les flashs) | Correctif |
+|---|---|---|
+| Flashs noirs | La nouvelle vidéo était affichée dès que `play()` répondait, avant que sa première image soit présentée ; l'ancienne était vidée par un minuteur qui pouvait tomber en plein chargement suivant ; l'écran à retard court recharge toutes les ~2 s | Affichage seulement après `requestVideoFrameCallback` ; vidéo de réserve gardée « visible » derrière (z-index, pas `opacity: 0`) ; plus de minuteur de nettoyage. Mesuré par capture d'écran (Chromium, 45 s, retards 5/8/12 s) : 88 images noires → 0 |
+| Pause / lecture ignorée | Un rechargement lancé avant le clic relançait la lecture à son arrivée | Intention de lecture (`wantPlay`) relue au moment d'afficher ; l'icône suit l'intention |
+| Saut en arrière ou vers une autre position | Un chargement visait la position du début de la demande, pas celle d'arrivée ; `+3 s` / pas image repartaient de l'ancienne position pendant un chargement ; `play()` sur une vidéo arrivée au bout la ramenait au début de l'époque | Cible suivie dans le temps (`goal`), position logique pour les sauts, rechargement d'un extrait frais quand on relance une vidéo terminée |
+| Écran noir ou source perdue | Chargements enchaînés (glissement du doigt) qui se coupaient mutuellement | Un seul chargement actif, écart minimal de 150 ms, le dernier gagne |
+| Verrou qui se reverrouille | Le déverrouillage se faisait après 1 s d'appui, puis le relâchement déclenchait un `click` qui reverrouillait | Le clic qui suit un déverrouillage est ignoré (testé avec une vraie souris) |
+
+Limites : vérifié en Chromium uniquement ; le comportement de `requestVideoFrameCallback` sur une vidéo en pause (Safari) reste à confirmer sur iPad. Le test de pause pendant un rechargement garde le comportement mais je n'ai pas pu prouver qu'il échouait avant le correctif.
+
 Les sections suivantes décrivent l'état **avant** les corrections.
 
 ---

@@ -203,14 +203,21 @@ function renderLock() {
   $('lockIcon').textContent = isLocked ? '🔒' : '🔓';
   lockBtn.setAttribute('aria-label', isLocked ? 'Maintenir pour déverrouiller' : 'Verrouiller les réglages');
 }
+let swallowClick = false;
 lockBtn.addEventListener('pointerdown', () => {
+  swallowClick = false;
   if (!isLocked) return;
-  lockTimer = setTimeout(() => { isLocked = false; renderLock(); }, UNLOCK_HOLD_MS);
+  lockTimer = setTimeout(() => {
+    isLocked = false;
+    swallowClick = true; // le relâchement qui suit ne doit pas reverrouiller
+    renderLock();
+  }, UNLOCK_HOLD_MS);
 });
 for (const type of ['pointerup', 'pointerleave', 'pointercancel']) {
   lockBtn.addEventListener(type, () => clearTimeout(lockTimer));
 }
 lockBtn.addEventListener('click', () => {
+  if (swallowClick) { swallowClick = false; return; }
   if (!isLocked) { isLocked = true; renderLock(); }
   else showToast('Maintiens le cadenas 1 seconde pour déverrouiller.', { kind: 'info', timeout: 2500 });
 });

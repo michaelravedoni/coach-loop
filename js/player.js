@@ -16,6 +16,7 @@ const LIVE_TOLERANCE = 0.8; // écart max (s) entre la lecture et le direct reta
 const LOOKAHEAD = 3; // on recharge quand il reste moins de 3 s de vidéo
 const RING_LENGTH = 44; // 2 * PI * 7
 const HUD_HIDE_MS = 3000;
+const LOAD_MIN_GAP_MS = 150; // évite d'enchaîner les chargements pendant un glissement
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -33,6 +34,16 @@ function once(el, type, timeoutMs) {
     const timer = setTimeout(() => done(false, new Error(`timeout ${type}`)), timeoutMs);
     el.addEventListener(type, onType);
     el.addEventListener('error', onError);
+  });
+}
+
+/** Résout quand une image de la vidéo a réellement été présentée à l'écran (ou après un délai). */
+function framePresented(video, timeoutMs = 600) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    const done = () => { clearTimeout(timer); resolve(); };
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(done);
+    else video.addEventListener('timeupdate', done, { once: true });
   });
 }
 
@@ -76,8 +87,12 @@ export class Player {
     this.state = 'WAITING';
     this.speed = 1;
     this.src = null; // { epoch, url, coverage }
-    this.loadId = 0;
+    this.loadId = 0; // jeton : tout chargement dont le jeton a changé est abandonné
     this.loading = false;
+    this.loadTimer = null;
+    this.lastLoadAt = 0;
+    this.wantPlay = false; // intention de l'utilisateur (la vidéo s'y conforme)
+    this.goal = null; // position visée pendant un chargement : { pos, at, playing, live }
     this.lastActivity = 0;
     this.dragging = false;
     this.scrubBase = 0;
@@ -115,6 +130,7 @@ export class Player {
   }
 
   setSpeed(rate) {
+    this.#rebaseGoal();
     this.speed = rate;
     for (const v of this.videos) v.playbackRate = rate;
     this.el.speedBtn.textContent = `${rate.toFixed(rate === 0.25 ? 2 : 1)}x`;
@@ -174,7 +190,7 @@ export class Player {
   }
 
   #syncPlayIcon() {
-    this.el.playBtn.textContent = this.video.paused ? '▶' : '⏸';
+    this.el.playBtn.textContent = this.wantPlay ? '⏸' : '▶';
   }
 
   #updateRing(progress) {
@@ -195,6 +211,7 @@ export class Player {
   enterAnalysis() {
     if (this.state === 'WAITING') return;
     this.state = 'ANALYSE';
+    this.#rebaseGoal();
     clearTimeout(this.hudTimer);
     this.#setHudHidden(false);
     this.touch();
@@ -215,37 +232,36 @@ export class Player {
   togglePlay() {
     if (this.state === 'WAITING') return;
     this.enterAnalysis();
-    const v = this.video;
-    if (v.paused) v.play().catch(() => {});
-    else v.pause();
+    this.#setWantPlay(!this.wantPlay);
     this.touch();
   }
 
   jump(seconds) {
     if (this.state === 'WAITING') return;
     this.enterAnalysis();
-    this.seek(this.pos() + seconds);
+    this.seek(this.#basePos() + seconds);
     this.touch();
   }
 
   step(direction) {
     if (this.state === 'WAITING') return;
     this.enterAnalysis();
-    this.video.pause();
-    this.seek(this.pos() + direction / (this.recorder.fps || 30), { play: false });
+    this.#setWantPlay(false);
+    this.seek(this.#basePos() + direction / (this.recorder.fps || 30));
     this.touch();
   }
 
   scrubStart() {
     if (this.state === 'WAITING') return;
     this.enterAnalysis();
-    this.scrubBase = this.pos() ?? this.recorder.now();
+    this.scrubBase = this.#basePos();
   }
 
   scrubMove(seconds) {
     if (this.state === 'WAITING') return;
-    this.seek(this.scrubBase + seconds);
-    const lag = Math.max(0, this.recorder.now() - (this.pos() ?? 0));
+    const wanted = this.scrubBase + seconds;
+    this.seek(wanted);
+    const lag = Math.max(0, this.recorder.now() - wanted);
     this.el.scrubBadge.textContent = `−${lag.toFixed(1)}s`;
     this.el.scrubBadge.classList.add('visible');
     this.touch();
@@ -270,7 +286,52 @@ export class Player {
     this.touch();
   }
 
+  // ---------- Intention de lecture ----------
+
+  #setWantPlay(on) {
+    this.#rebaseGoal(on);
+    this.wantPlay = on;
+    if (!on) this.video.pause();
+    else if (this.src && !this.loading) this.#resume();
+    this.#syncPlayIcon();
+  }
+
+  /** Relance la lecture ; recharge un extrait frais si la vidéo est arrivée au bout. */
+  #resume() {
+    const v = this.video;
+    const p = this.pos();
+    const { epoch, coverage } = this.src;
+    const atEnd = v.ended || (p - epoch.t0 + 0.5 >= coverage && epoch.coverage() > coverage + 0.5);
+    if (atEnd) this.#requestLoad(this.recorder.epochFor(p), p);
+    else v.play().catch(() => {});
+  }
+
   // ---------- Positionnement et chargement ----------
+
+  /** Position logique : la cible d'un chargement en cours, sinon ce qui est à l'écran. */
+  #basePos() {
+    return this.#goalPos() ?? this.pos() ?? this.recorder.now();
+  }
+
+  #goalPos() {
+    const g = this.goal;
+    if (!g) return null;
+    if (g.live) return this.recorder.now() - this.delay;
+    return g.playing ? g.pos + (this.recorder.now() - g.at) * this.speed : g.pos;
+  }
+
+  /** Fige la cible d'un chargement en cours quand l'intention change (pause, vitesse, analyse). */
+  #rebaseGoal(playing = this.wantPlay) {
+    if (!this.goal) return;
+    this.goal = { pos: this.#goalPos(), at: this.recorder.now(), playing, live: this.state === 'LIVE' };
+  }
+
+  #cancelLoad() {
+    this.loadId++;
+    this.loading = false;
+    this.goal = null;
+    clearTimeout(this.loadTimer);
+  }
 
   /**
    * Va à l'instant `pos` de la séance. Si la source en cours le contient, on se
@@ -278,81 +339,107 @@ export class Player {
    */
   seek(pos, { play } = {}) {
     const rec = this.recorder;
+    if (play !== undefined) {
+      this.wantPlay = play;
+      this.#syncPlayIcon();
+    }
     pos = clamp(pos, rec.oldest, rec.now() - 0.3);
     const epoch = rec.epochFor(pos);
     if (!epoch) return;
     const v = this.video;
-    const shouldPlay = play ?? !v.paused;
 
     if (this.src && this.src.epoch === epoch && pos - epoch.t0 <= this.src.coverage - 0.5) {
-      this.loadId++; // annule un chargement en cours devenu inutile
-      this.loading = false;
+      this.#cancelLoad();
       v.currentTime = Math.max(0, pos - epoch.t0);
-      if (shouldPlay && v.paused) v.play().catch(() => {});
+      if (this.wantPlay && v.paused) v.play().catch(() => {});
+      else if (!this.wantPlay && !v.paused) v.pause();
       return;
     }
-    this.#load(epoch, pos, { play: shouldPlay });
+    this.#requestLoad(epoch, pos);
+  }
+
+  /** Demande le chargement d'un extrait ; le dernier appel gagne, avec un écart minimal entre deux chargements. */
+  #requestLoad(epoch, pos) {
+    this.loadId++;
+    const token = this.loadId;
+    this.loading = true;
+    this.goal = { pos, at: this.recorder.now(), playing: this.wantPlay, live: this.state === 'LIVE' };
+    clearTimeout(this.loadTimer);
+    const wait = Math.max(0, LOAD_MIN_GAP_MS - (performance.now() - this.lastLoadAt));
+    this.loadTimer = setTimeout(() => this.#load(epoch, token), wait);
   }
 
   /**
-   * Charge l'époque dans la vidéo cachée, la positionne, puis l'affiche.
-   * `live` : la cible suit l'horloge (maintenant - retard) jusqu'au moment de l'affichage.
+   * Charge l'époque dans la vidéo cachée, la positionne, puis l'affiche une fois
+   * qu'une image est réellement prête (jamais de noir). La cible suit l'horloge
+   * si la lecture est en cours.
    */
-  async #load(epoch, pos, { play, live = this.state === 'LIVE' }) {
-    const token = ++this.loadId;
-    this.loading = true;
+  async #load(epoch, token) {
+    if (token !== this.loadId) return;
+    this.lastLoadAt = performance.now();
+    const alive = () => token === this.loadId;
     const spare = this.videos[1 - this.active];
     const snap = epoch.snapshot();
-    const target = () => (live ? this.recorder.now() - this.delay : pos);
     let swapped = false;
     try {
       spare.src = snap.url;
       await once(spare, 'loadedmetadata', 5000);
-      if (token !== this.loadId) return;
+      if (!alive()) return;
 
-      const t0 = Math.max(0, target() - epoch.t0);
-      if (Math.abs(spare.currentTime - t0) > 0.01) {
-        spare.currentTime = t0;
+      const startAt = Math.max(0, this.#goalPos() - epoch.t0);
+      if (Math.abs(spare.currentTime - startAt) > 0.01) {
+        spare.currentTime = startAt;
         await once(spare, 'seeked', 4000);
-        if (token !== this.loadId) return;
+        if (!alive()) return;
       }
       // Début d'époque pas encore atteint par le direct : on attend ici, l'ancienne vidéo continue.
-      const wait = epoch.t0 - target();
+      const wait = epoch.t0 - this.#goalPos();
       if (wait > 0) {
         await sleep(wait * 1000);
-        if (token !== this.loadId) return;
+        if (!alive()) return;
       }
+      // Le positionnement a pris du temps : on se recale juste avant de démarrer.
+      const now = Math.max(0, this.#goalPos() - epoch.t0);
+      if (this.wantPlay && Math.abs(spare.currentTime - now) > 0.15) spare.currentTime = now;
       spare.playbackRate = this.speed;
-      if (play) {
+      if (this.wantPlay) {
         await spare.play().catch(() => {});
-        if (token !== this.loadId) return;
+        if (!alive()) return;
       }
+      await framePresented(spare);
+      if (!alive()) return;
+      // L'utilisateur a pu mettre en pause / relancer pendant le chargement.
+      if (!this.wantPlay) spare.pause();
+      else if (spare.paused) await spare.play().catch(() => {});
+      if (!alive()) return;
 
       const old = this.video;
       const oldSrc = this.src;
       spare.classList.add('on');
       old.classList.remove('on');
       old.pause();
+      old.removeAttribute('src');
+      old.load();
+      if (oldSrc) URL.revokeObjectURL(oldSrc.url);
       this.active = 1 - this.active;
       this.src = { epoch, url: snap.url, coverage: snap.coverage };
       swapped = true;
+      this.goal = null;
       this.#syncPlayIcon();
-      setTimeout(() => {
-        old.removeAttribute('src');
-        old.load();
-        if (oldSrc) URL.revokeObjectURL(oldSrc.url);
-      }, 300);
     } catch {
       // Chargement impossible ou trop long : le prochain tick réessaiera.
     } finally {
       if (!swapped) {
         URL.revokeObjectURL(snap.url);
-        if (token === this.loadId) {
+        if (alive()) {
           spare.removeAttribute('src');
           spare.load();
         }
       }
-      if (token === this.loadId) this.loading = false;
+      if (alive()) {
+        this.loading = false;
+        this.goal = null;
+      }
     }
   }
 
@@ -379,8 +466,9 @@ export class Player {
       const epoch = rec.epochFor(now - this.delay);
       if (remaining <= 0 && epoch && epoch.coverage() > now - this.delay - epoch.t0 + 1.5) {
         this.state = 'LIVE';
+        this.wantPlay = true;
         this.#renderState();
-        this.#load(epoch, now - this.delay, { play: true, live: true });
+        this.#requestLoad(epoch, now - this.delay);
         this.pokeHud();
       }
       return;
@@ -411,19 +499,22 @@ export class Player {
         return;
       }
       if (v.paused) v.play().catch(() => {});
+    } else if (this.wantPlay && v.ended) {
+      this.#resume();
+      return;
     }
 
     if (!v.paused && !v.ended) {
       const next = this.#refreshTarget(p);
-      if (next) this.#load(next, p, { play: true });
+      if (next) this.#requestLoad(next, p);
     }
   }
 
   // ---------- Fin de séance ----------
 
   stop() {
-    this.loadId++;
-    this.loading = false;
+    this.#cancelLoad();
+    this.wantPlay = false;
     for (const v of this.videos) {
       v.pause();
       v.removeAttribute('src');
