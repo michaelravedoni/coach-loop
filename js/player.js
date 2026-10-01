@@ -16,6 +16,7 @@ const LIVE_TOLERANCE = 0.8; // écart max (s) entre la lecture et le direct reta
 const LOOKAHEAD = 3; // on recharge quand il reste moins de 3 s de vidéo
 const RING_LENGTH = 44; // 2 * PI * 7
 const HUD_HIDE_MS = 3000;
+const STALL_SECONDS = 2; // lecture « en cours » mais image immobile : on recharge
 const LOAD_MIN_GAP_MS = 150; // évite d'enchaîner les chargements pendant un glissement
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -91,6 +92,8 @@ export class Player {
     this.loading = false;
     this.loadTimer = null;
     this.lastLoadAt = 0;
+    this.lastCt = 0; // détection d'une lecture bloquée
+    this.lastMoveAt = 0;
     this.wantPlay = false; // intention de l'utilisateur (la vidéo s'y conforme)
     this.goal = null; // position visée pendant un chargement : { pos, at, playing, live }
     this.lastActivity = 0;
@@ -425,6 +428,8 @@ export class Player {
       this.src = { epoch, url: snap.url, coverage: snap.coverage };
       swapped = true;
       this.goal = null;
+      this.lastCt = spare.currentTime;
+      this.lastMoveAt = this.recorder.now();
       this.#syncPlayIcon();
     } catch {
       // Chargement impossible ou trop long : le prochain tick réessaiera.
@@ -491,6 +496,17 @@ export class Player {
 
     if (this.loading || !this.src || p === null) return;
     const v = this.video;
+
+    // Garde-fou : la vidéo dit « lecture » mais l'image ne bouge plus (décodeur bloqué,
+    // fin de données). On recharge un extrait frais à la même position.
+    if (Math.abs(v.currentTime - this.lastCt) > 0.001 || v.paused) {
+      this.lastCt = v.currentTime;
+      this.lastMoveAt = now;
+    } else if (this.wantPlay && now - this.lastMoveAt > STALL_SECONDS) {
+      this.lastMoveAt = now;
+      this.#requestLoad(rec.epochFor(p), p);
+      return;
+    }
 
     if (this.state === 'LIVE') {
       const target = now - this.delay;
