@@ -1,0 +1,13 @@
+{
+  "name": "coach-loop",
+  "private": true,
+  "description": "Retour vidéo différé pour l'entraînement sportif (aucune dépendance d'exécution, aucune étape de build).",
+  "type": "module",
+  "scripts": {
+    "start": "node test/serve.mjs",
+    "test": "node test/smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
