@@ -46,11 +46,10 @@ Gravité = impact sur la stabilité en séance. Les identifiants (C1, E2…) ser
 | M1 | 🟡 Moyen | `frameRate.min: 30` fait échouer la caméra, message d'erreur vide | E |
 | M2 | 🟡 Moyen | Pas de gestes souris/clavier : zoom, pan, scrub inutilisables sur ordinateur | L |
 | M3 | 🟡 Moyen | Pas de zone de sécurité (safe area) en PWA, `100vh` sur Safari | L + S |
-| M4 | 🟡 Moyen | Icône d'écran d'accueil en SVG (iOS attend du PNG) | S |
-| M5 | 🟡 Moyen | Icône ▶/⏸ pas resynchronisée après retour au direct | L |
-| M6 | 🟡 Moyen | Pas de pas image fiable (1/60 s fixe, seek approximatif) | L |
-| M7 | 🟡 Moyen | Retard affiché basé sur l'horloge murale, pas sur la vidéo | L + S |
-| M8 | 🟡 Moyen | Pas de garde contre le double clic sur « Démarrer » | L |
+| M4 | 🟡 Moyen | Icône ▶/⏸ pas resynchronisée après retour au direct | L |
+| M5 | 🟡 Moyen | Pas de pas image fiable (1/60 s fixe, seek approximatif) | L |
+| M6 | 🟡 Moyen | Retard affiché basé sur l'horloge murale, pas sur la vidéo | L + S |
+| M7 | 🟡 Moyen | Pas de garde contre le double clic sur « Démarrer » | L |
 | F1 | ⚪ Faible | Valeurs « bidon » à l'écran (« Optimisé », « 60 fps » avant démarrage, « RAM ») | L |
 | F2 | ⚪ Faible | `vid.src = ""` provoque une erreur média | L |
 | F3 | ⚪ Faible | Code mort (`isSwiping`), 4 minuteurs au lieu d'une boucle | L |
@@ -111,11 +110,10 @@ Les `touchmove` sont écoutés sur toute la carte, sans filtrer la cible. Faire 
 * **M1 [E]** — `index.html:1022` : `frameRate: { ideal: 60, min: 30 }`. Une caméra incapable de 30 images/s fait échouer `getUserMedia` (OverconstrainedError). Constaté avec la caméra factice (20 i/s) : l'alerte affiche « Erreur caméra : » avec un message **vide**. À remplacer par `ideal` sans `min`, et par un message d'erreur utile (permission refusée, caméra absente, HTTPS requis…) dans l'interface plutôt que `alert()`.
 * **M2 [L]** — Les gestes n'utilisent que des événements `touch*`. Sur Chrome ou Safari de bureau : **pas de zoom, pas de pan, pas de scrub à la souris**. Puisque l'app cible tous les navigateurs, il faut passer aux Pointer Events (souris, doigt, stylet) plus la molette/pinch trackpad et des raccourcis clavier (espace, flèches, J/K/L).
 * **M3 [L + S]** — `apple-mobile-web-app-status-bar-style: black-translucent` sans `viewport-fit=cover` ni `env(safe-area-inset-*)` : en PWA, le haut de l'écran passe sous la barre d'état. `100vh` (lignes 55, 63, 86) dépasse en onglet Safari à cause de la barre d'adresse : utiliser `100dvh`.
-* **M4 [S]** — `<link rel="apple-touch-icon" href="icon.svg">` : iOS n'accepte que des PNG pour cette icône ; le manifeste ne propose qu'un SVG. Prévoir des PNG 180/192/512 (dont un « maskable » séparé).
-* **M5 [L]** — `returnToLive` ne remet pas l'icône Play/Pause à jour. Après une pause suivie du retour automatique au direct, le bouton affiche ▶ alors que la vidéo joue. Cause de fond : l'interface est mise à jour à la main au lieu de s'appuyer sur les événements `play`, `pause`, `ratechange`.
-* **M6 [L]** — `FRAME_STEP = 1/60` est fixe, alors que la caméra peut tourner à 30 i/s : deux appuis pour une image. Le positionnement par `currentTime` n'est pas précis à l'image près sur ces fichiers. L'API `requestVideoFrameCallback` donne les vrais temps d'image.
-* **M7 [L + S]** — Le retard affiché (`updateTag`) et la cible de lecture se calculent avec `Date.now()` depuis le clic sur « Démarrer ». Or la vidéo enregistrée démarre avec un petit décalage et peut perdre des images : **le retard réel peut différer du retard affiché de quelques centaines de ms**. À mesurer sur iPad ; avec des horodatages d'encodage (§5) le problème disparaît.
-* **M8 [L]** — `isRunning` n'est mis à `true` qu'après `await getUserMedia`. Un double clic rapide lance deux flux.
+* **M4 [L]** — `returnToLive` ne remet pas l'icône Play/Pause à jour. Après une pause suivie du retour automatique au direct, le bouton affiche ▶ alors que la vidéo joue. Cause de fond : l'interface est mise à jour à la main au lieu de s'appuyer sur les événements `play`, `pause`, `ratechange`.
+* **M5 [L]** — `FRAME_STEP = 1/60` est fixe, alors que la caméra peut tourner à 30 i/s : deux appuis pour une image. Le positionnement par `currentTime` n'est pas précis à l'image près sur ces fichiers. L'API `requestVideoFrameCallback` donne les vrais temps d'image.
+* **M6 [L + S]** — Le retard affiché (`updateTag`) et la cible de lecture se calculent avec `Date.now()` depuis le clic sur « Démarrer ». Or la vidéo enregistrée démarre avec un petit décalage et peut perdre des images : **le retard réel peut différer du retard affiché de quelques centaines de ms**. À mesurer sur iPad ; avec des horodatages d'encodage (§5) le problème disparaît.
+* **M7 [L]** — `isRunning` n'est mis à `true` qu'après `await getUserMedia`. Un double clic rapide lance deux flux.
 
 ### ⚪ Faibles
 
@@ -171,7 +169,7 @@ index.html          # structure + <template> d'un écran (un seul, instancié 3�
 styles.css          # variables, layout, composants (CSS nesting, dvh, container queries)
 sw.js               # cache versionné
 manifest.webmanifest
-icons/              # PNG 180/192/512 + maskable
+icons/              # icône(s) de l'app
 js/
   main.js           # assemblage, état de séance
   recorder.js       # caméra + enregistrement + tampon circulaire (Recorder, RingBuffer)
@@ -242,10 +240,10 @@ Chaque lot est indépendant et ferait l'objet d'une PR séparée.
 | Lot | Contenu | Corrige |
 |---|---|---|
 | **1. Stabiliser les gestes** | Pointer Events, pinch centré, pan borné, double tap fiable, `inert` sur le HUD masqué, filtrage des cibles | C4, E1, E2, E8, M2 (partiel), §4 |
-| **2. Stabiliser la lecture** | Recollage espacé, attente de `loadedmetadata`, ANALYSE à jour, ralenti en direct, synchro des boutons par événements | C2, C3 (partiel), E3, E4, E5, M5 |
-| **3. Cycle de vie** | Wake Lock, erreurs caméra, fin de séance propre, garde double clic, `frameRate` sans `min` | E6, E7, M1, M8 |
-| **4. PWA** | Service worker versionné + bandeau de mise à jour, icônes PNG, safe areas, `dvh` | C5, M3, M4 |
-| **5. Mémoire plafonnée** | Niveau B ou C du §5.2, après prototype iPad | C1, C3, M6, M7 |
+| **2. Stabiliser la lecture** | Recollage espacé, attente de `loadedmetadata`, ANALYSE à jour, ralenti en direct, synchro des boutons par événements | C2, C3 (partiel), E3, E4, E5, M4 |
+| **3. Cycle de vie** | Wake Lock, erreurs caméra, fin de séance propre, garde double clic, `frameRate` sans `min` | E6, E7, M1, M7 |
+| **4. PWA** | Service worker versionné + bandeau de mise à jour, safe areas, `dvh` | C5, M3 |
+| **5. Mémoire plafonnée** | Niveau B ou C du §5.2, après prototype iPad | C1, C3, M5, M6 |
 | **6. Structure & CI** | Modules ES, un seul gabarit d'écran, `@ts-check`, test Playwright, déploiement Pages | F3 et dette |
 | **7. UX/UI** | §6 : cibles tactiles, attente avant retard, zoom lié, réglages, plein écran | F4, UX |
 
