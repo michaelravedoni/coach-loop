@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CoachLoop</title>
+  <!-- Métadonnées PWA & Apple Web App -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CoachLoop">
+  <link rel="apple-touch-icon" href="icon.svg">
+  
+  <!-- Enregistrement du Service Worker dans la balise script principale -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(() => console.log('PWA prête pour le mode hors-ligne'))
+          .catch(err => console.error('Erreur Service Worker :', err));
+      });
+    }
+  </script>
+  <style>
+    :root {
+      --bg: #000000;
+      --surface: #0a0e17;
+      --surface-elevated: #111726;
+      --border: #1a2234;
+      --border-focus: #28354f;
+      --cyan: #00e5ff;
+      --cyan-glow: rgba(0, 229, 255, 0.35);
+      --amber: #ffb300;
+      --amber-glow: rgba(255, 179, 0, 0.35);
+      --red: #ff334b;
+      --red-glow: rgba(255, 51, 75, 0.4);
+      --green: #00e676;
+      --text: #f8fafc;
+      --text-muted: #64748b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      height: 100vh;
+      width: 100vw;
+      gap: 5px;
+      padding: 5px;
+      background-color: #000;
+    }
+
+    /* Écran vidéo */
+    .screen-card {
+      position: relative;
+      background-color: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border);
+      touch-action: none; /* Bloque le scroll natif iOS pour le gesture pinch/swipe */
+    }
+
+    .screen-card.is-fullscreen {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 9999;
+      border-radius: 0;
+      border: none;
+    }
+
+    .video-viewport {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transform-origin: center center;
+      pointer-events: none;
+    }
+
+    /* Grille de repères de posture */
+    .grid-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: none;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+      background-size: 20% 20%;
+      z-index: 2;
+    }
+    .grid-overlay.active { display: block; }
+    .grid-overlay.active::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: rgba(255, 51, 75, 0.6);
+    }
+
+    /* HUD de navigation tactile (Auto-hide) */
+    .hud-layer {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 8px;
+      z-index: 10;
+      pointer-events: none;
+      transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      opacity: 1;
+    }
+
+    .hud-layer.hidden {
+      opacity: 0;
+    }
+
+    .hud-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .top-pill {
+      background: rgba(10, 14, 23, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .badge-status {
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 800;
+      text-transform: uppercase;
+      background: rgba(0, 230, 118, 0.15);
+      color: var(--green);
+      border: 1px solid rgba(0, 230, 118, 0.3);
+    }
+    .badge-status.analysis {
+      background: rgba(255, 179, 0, 0.15);
+      color: var(--amber);
+      border-color: rgba(255, 179, 0, 0.4);
+    }
+
+    .btn-icon {
+      pointer-events: auto;
+      background: rgba(10, 14, 23, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text);
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .btn-icon:active { background: rgba(255, 255, 255, 0.15); }
+
+    /* Indicateur central de scrubbing au doigt */
+    .center-scrub-indicator {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--cyan);
+      box-shadow: 0 0 20px var(--cyan-glow);
+      padding: 8px 18px;
+      border-radius: 20px;
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--cyan);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      font-variant-numeric: tabular-nums;
+      z-index: 20;
+    }
+    .center-scrub-indicator.visible { opacity: 1; }
+
+    /* Barre d'action inférieure */
+    .hud-bottom {
+      pointer-events: auto;
+      background: rgba(10, 14, 23, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 4px 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+
+    .scrubber-track {
+      width: 100%;
+      height: 8px;
+      display: flex;
+      align-items: center;
+    }
+
+    .scrubber {
+      width: 100%;
+      height: 3px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    .scrubber::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan-glow);
+    }
+
+    .actions-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 26px;
+    }
+
+    .btn-group {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .hud-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      cursor: pointer;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hud-btn:active { background: rgba(255, 255, 255, 0.18); transform: scale(0.96); }
+
+    .btn-play {
+      background: var(--cyan);
+      color: #000;
+      border: none;
+      font-weight: 800;
+      min-width: 26px;
+    }
+
+    .btn-speed-badge {
+      color: var(--cyan);
+      font-variant-numeric: tabular-nums;
+      min-width: 34px;
+    }
+    .btn-speed-badge.slow {
+      color: var(--amber);
+      border-color: rgba(255, 179, 0, 0.4);
+      background: rgba(255, 179, 0, 0.1);
+    }
+
+    .hud-time-tag {
+      font-size: 0.72rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+      color: var(--cyan);
+      padding: 0 4px;
+    }
+
+    /* Bouton direct avec anneau SVG de décompte */
+    .btn-direct-wrapper {
+      position: relative;
+      display: none;
+      align-items: center;
+    }
+    .btn-direct-wrapper.visible { display: flex; }
+
+    .btn-direct {
+      background: rgba(255, 179, 0, 0.15);
+      border: 1px solid var(--amber);
+      color: var(--amber);
+      padding: 2px 8px 2px 24px;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 800;
+      cursor: pointer;
+      height: 22px;
+      display: flex;
+      align-items: center;
+    }
+
+    .countdown-svg {
+      position: absolute;
+      left: 4px;
+      width: 16px;
+      height: 16px;
+      transform: rotate(-90deg);
+      pointer-events: none;
+    }
+    .countdown-circle-bg {
+      fill: none;
+      stroke: rgba(255, 179, 0, 0.2);
+      stroke-width: 2;
+    }
+    .countdown-circle-val {
+      fill: none;
+      stroke: var(--amber);
+      stroke-width: 2.2;
+      stroke-dasharray: 44;
+      stroke-dashoffset: 0;
+      transition: stroke-dashoffset 0.2s linear;
+    }
+
+    /* 4e quadrant : console de contrôle pro */
+    .console-panel {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      width: 100%;
+      height: 100%;
+      background: var(--surface);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      overflow-y: auto;
+    }
+
+    .console-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-branding {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .app-title {
+      font-size: 0.95rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      color: #fff;
+    }
+
+    .telemetry-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pill-telemetry {
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+    }
+    .pill-telemetry strong { color: #fff; }
+
+    /* Bouton cadenas / verrouillage athlètes */
+    .btn-lock {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-muted);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-lock.locked {
+      background: rgba(0, 229, 255, 0.15);
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+
+    .btn-record-main {
+      background: var(--cyan);
+      color: #000;
+      border: none;
+      padding: 8px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      margin: 8px 0;
+      box-shadow: 0 0 16px var(--cyan-glow);
+    }
+    .btn-record-main.is-recording {
+      background: var(--red);
+      color: #fff;
+      box-shadow: 0 0 16px var(--red-glow);
+    }
+
+    /* Bloc verrouillable pour les athlètes */
+    .protected-section {
+      transition: opacity 0.2s, filter 0.2s;
+    }
+    .is-locked .protected-section {
+      opacity: 0.35;
+      pointer-events: none;
+      filter: grayscale(1);
+    }
+    .is-locked .btn-record-main {
+      opacity: 0.35;
+      pointer-events: none;
+    }
+
+    .section-label {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    /* Sélecteur segmenté broadcast */
+    .segmented-control {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      background: rgba(0, 0, 0, 0.4);
+      padding: 2px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      gap: 2px;
+      margin-bottom: 8px;
+    }
+
+    .seg-item {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 5px 2px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: center;
+    }
+    .seg-item.active {
+      background: var(--surface-elevated);
+      color: var(--cyan);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+
+    /* Steppers compacts */
+    .steppers-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .stepper-box {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .stepper-title {
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+
+    .stepper-inner {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .step-btn-touch {
+      width: 22px;
+      height: 22px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      color: #fff;
+      font-size: 0.85rem;
+      font-weight: 700;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .step-btn-touch:active { background: rgba(255, 255, 255, 0.2); }
+
+    .step-display {
+      font-size: 0.78rem;
+      font-weight: 800;
+      color: #fff;
+      min-width: 26px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Cadre caméra directe */
+    .live-monitor-box {
+      position: relative;
+      height: 64px;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #000;
+    }
+
+    .live-tag {
+      position: absolute;
+      top: 3px;
+      left: 4px;
+      font-size: 0.55rem;
+      background: rgba(255, 51, 75, 0.2);
+      border: 1px solid var(--red);
+      color: var(--red);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="main-grid" id="mainGrid">
+
+    <!-- Écran 1 -->
+    <div class="screen-card" id="card0">
+      <div class="video-viewport" id="viewport0">
+        <video id="vid0" playsinline muted autoplay></video>
+      </div>
+      <div id="grid0" class="grid-overlay"></div>
+      <div class="center-scrub-indicator" id="scrubBadge0">-20.0s</div>
+
+      <div class="hud-layer" id="hud0">
+        <div class="hud-top">
+          <div class="top-pill">
+            <span>1</span>
+            <span id="labelDelay0">-20s</span>
+            <span class="badge-status" id="badge0">DIRECT</span>
+          </div>
+          <button class="btn-icon" onclick="toggleFullScreen(0)">⛶</button>
+        </div>
+
+        <div class="hud-bottom">
+          <div class="scrubber-track">
+            <input type="range" class="scrubber" id="scrub0" min="0" max="60" step="0.05" value="0">
+          </div>
+          <div class="actions-row">
+            <div class="btn-group">
+              <button class="hud-btn btn-play" id="playBtn0" onclick="togglePlay(0)">▶</button>
+              <button class="hud-btn" onclick="stepFrame(0, -1)">|◀</button>
+              <button class="hud-btn" onclick="stepFrame(0, 1)">▶|</button>
+              <button class="hud-btn" onclick="jump(0, -3)">−3s</button>
+              <button class="hud-btn" onclick="jump(0, +3)">+3s</button>
+              <button class="hud-btn btn-speed-badge" id="speedBtn0" onclick="cycleSpeed(0)">1.0x</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span class="hud-time-tag" id="tag0">-20.0s</span>
+              <div class="btn-direct-wrapper" id="liveWrap0">
+                <svg class="countdown-svg" viewBox="0 0 16 16">
+                  <circle class="countdown-circle-bg" cx="8" cy="8" r="7"/>
+                  <circle class="countdown-circle-val" id="ring0" cx="8" cy="8" r="7"/>
+                </svg>
+                <button class="btn-direct" onclick="returnToLive(0)">Direct</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Écran 2 -->
+    <div class="screen-card" id="card1">
+      <div class="video-viewport" id="viewport1">
+        <video id="vid1" playsinline muted autoplay></video>
+      </div>
+      <div id="grid1" class="grid-overlay"></div>
+      <div class="center-scrub-indicator" id="scrubBadge1">-40.0s</div>
+
+      <div class="hud-layer" id="hud1">
+        <div class="hud-top">
+          <div class="top-pill">
+            <span>2</span>
+            <span id="labelDelay1">-40s</span>
+            <span class="badge-status" id="badge1">DIRECT</span>
+          </div>
+          <button class="btn-icon" onclick="toggleFullScreen(1)">⛶</button>
+        </div>
+
+        <div class="hud-bottom">
+          <div class="scrubber-track">
+            <input type="range" class="scrubber" id="scrub1" min="0" max="60" step="0.05" value="0">
+          </div>
+          <div class="actions-row">
+            <div class="btn-group">
+              <button class="hud-btn btn-play" id="playBtn1" onclick="togglePlay(1)">▶</button>
+              <button class="hud-btn" onclick="stepFrame(1, -1)">|◀</button>
+              <button class="hud-btn" onclick="stepFrame(1, 1)">▶|</button>
+              <button class="hud-btn" onclick="jump(1, -3)">−3s</button>
+              <button class="hud-btn" onclick="jump(1, +3)">+3s</button>
+              <button class="hud-btn btn-speed-badge" id="speedBtn1" onclick="cycleSpeed(1)">1.0x</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span class="hud-time-tag" id="tag1">-40.0s</span>
+              <div class="btn-direct-wrapper" id="liveWrap1">
+                <svg class="countdown-svg" viewBox="0 0 16 16">
+                  <circle class="countdown-circle-bg" cx="8" cy="8" r="7"/>
+                  <circle class="countdown-circle-val" id="ring1" cx="8" cy="8" r="7"/>
+                </svg>
+                <button class="btn-direct" onclick="returnToLive(1)">Direct</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Écran 3 -->
+    <div class="screen-card" id="card2">
+      <div class="video-viewport" id="viewport2">
+        <video id="vid2" playsinline muted autoplay></video>
+      </div>
+      <div id="grid2" class="grid-overlay"></div>
+      <div class="center-scrub-indicator" id="scrubBadge2">-60.0s</div>
+
+      <div class="hud-layer" id="hud2">
+        <div class="hud-top">
+          <div class="top-pill">
+            <span>3</span>
+            <span id="labelDelay2">-60s</span>
+            <span class="badge-status" id="badge2">DIRECT</span>
+          </div>
+          <button class="btn-icon" onclick="toggleFullScreen(2)">⛶</button>
+        </div>
+
+        <div class="hud-bottom">
+          <div class="scrubber-track">
+            <input type="range" class="scrubber" id="scrub2" min="0" max="60" step="0.05" value="0">
+          </div>
+          <div class="actions-row">
+            <div class="btn-group">
+              <button class="hud-btn btn-play" id="playBtn2" onclick="togglePlay(2)">▶</button>
+              <button class="hud-btn" onclick="stepFrame(2, -1)">|◀</button>
+              <button class="hud-btn" onclick="stepFrame(2, 1)">▶|</button>
+              <button class="hud-btn" onclick="jump(2, -3)">−3s</button>
+              <button class="hud-btn" onclick="jump(2, +3)">+3s</button>
+              <button class="hud-btn btn-speed-badge" id="speedBtn2" onclick="cycleSpeed(2)">1.0x</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span class="hud-time-tag" id="tag2">-60.0s</span>
+              <div class="btn-direct-wrapper" id="liveWrap2">
+                <svg class="countdown-svg" viewBox="0 0 16 16">
+                  <circle class="countdown-circle-bg" cx="8" cy="8" r="7"/>
+                  <circle class="countdown-circle-val" id="ring2" cx="8" cy="8" r="7"/>
+                </svg>
+                <button class="btn-direct" onclick="returnToLive(2)">Direct</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4e quadrant : Console de régie pro -->
+    <div class="console-panel" id="consolePanel">
+      <div>
+        <div class="console-header">
+          <div class="app-branding">
+            <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green);"></span>
+            <span class="app-title">Régie terrain</span>
+          </div>
+          <div class="telemetry-row">
+            <div class="pill-telemetry"><span id="fpsVal">60 fps</span></div>
+            <button class="btn-lock" id="lockBtn" onclick="toggleSafeMode()">
+              <span id="lockIcon">🔓</span> <span id="lockText">Athlètes</span>
+            </button>
+          </div>
+        </div>
+
+        <button id="mainToggleBtn" class="btn-record-main">Démarrer la session</button>
+
+        <div class="protected-section">
+          <div class="section-label">Vitesse globale & repères</div>
+          <div class="segmented-control">
+            <button class="seg-item active" id="rate10" onclick="setGlobalSpeed(1.0)">1.0x</button>
+            <button class="seg-item" id="rate05" onclick="setGlobalSpeed(0.5)">0.5x</button>
+            <button class="seg-item" id="rate02" onclick="setGlobalSpeed(0.25)">0.25x</button>
+            <button class="seg-item" id="gridBtn" onclick="toggleGrids()">Grille</button>
+          </div>
+
+          <div class="section-label">Décalages temporels (secondes)</div>
+          <div class="steppers-grid">
+            <div class="stepper-box">
+              <span class="stepper-title">ÉCRAN 1</span>
+              <div class="stepper-inner">
+                <button class="step-btn-touch" onclick="adjustDelay(0, -5)">−</button>
+                <span class="step-display" id="val0">20s</span>
+                <button class="step-btn-touch" onclick="adjustDelay(0, +5)">+</button>
+              </div>
+            </div>
+            <div class="stepper-box">
+              <span class="stepper-title">ÉCRAN 2</span>
+              <div class="stepper-inner">
+                <button class="step-btn-touch" onclick="adjustDelay(1, -5)">−</button>
+                <span class="step-display" id="val1">40s</span>
+                <button class="step-btn-touch" onclick="adjustDelay(1, +5)">+</button>
+              </div>
+            </div>
+            <div class="stepper-box">
+              <span class="stepper-title">ÉCRAN 3</span>
+              <div class="stepper-inner">
+                <button class="step-btn-touch" onclick="adjustDelay(2, -5)">−</button>
+                <span class="step-display" id="val2">60s</span>
+                <button class="step-btn-touch" onclick="adjustDelay(2, +5)">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="live-monitor-box">
+          <span class="live-tag">CAMÉRA DIRECT</span>
+          <video id="liveCam" playsinline muted autoplay style="width: 100%; height: 100%; object-fit: cover;"></video>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--text-muted); margin-top: 6px;">
+          <span>Session : <strong id="timeReadout" style="color: #fff;">0s</strong></span>
+          <span>RAM : <strong id="ramReadout" style="color: #fff;">0 Mo</strong></span>
+          <span>Statut : <strong style="color: var(--cyan);">Optimisé</strong></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const FRAME_STEP = 1 / 60;
+    const INACTIVITY_TIMEOUT = 10;
+    const SPEED_CYCLE = [1.0, 0.5, 0.25];
+    const CIRCLE_CIRCUMFERENCE = 44; // 2 * PI * 7
+
+    const screens = [
+      {
+        id: 0, delay: 20, vid: document.getElementById('vid0'), card: document.getElementById('card0'),
+        hud: document.getElementById('hud0'), scrubBadge: document.getElementById('scrubBadge0'),
+        badge: document.getElementById('badge0'), scrub: document.getElementById('scrub0'),
+        tag: document.getElementById('tag0'), liveWrap: document.getElementById('liveWrap0'),
+        ring: document.getElementById('ring0'), playBtn: document.getElementById('playBtn0'),
+        speedBtn: document.getElementById('speedBtn0'), mode: 'LIVE', speed: 1.0,
+        isReady: false, isUserSeeking: false, countdown: 0, timerId: null,
+        currentBlobUrl: null, hudHideTimeout: null,
+        // Zoom & Pan state
+        scale: 1, panX: 0, panY: 0,
+        touchState: { startDist: 0, startScale: 1, startX: 0, startY: 0, isPinching: false, isSwiping: false, scrubStartTime: 0 }
+      },
+      {
+        id: 1, delay: 40, vid: document.getElementById('vid1'), card: document.getElementById('card1'),
+        hud: document.getElementById('hud1'), scrubBadge: document.getElementById('scrubBadge1'),
+        badge: document.getElementById('badge1'), scrub: document.getElementById('scrub1'),
+        tag: document.getElementById('tag1'), liveWrap: document.getElementById('liveWrap1'),
+        ring: document.getElementById('ring1'), playBtn: document.getElementById('playBtn1'),
+        speedBtn: document.getElementById('speedBtn1'), mode: 'LIVE', speed: 1.0,
+        isReady: false, isUserSeeking: false, countdown: 0, timerId: null,
+        currentBlobUrl: null, hudHideTimeout: null,
+        scale: 1, panX: 0, panY: 0,
+        touchState: { startDist: 0, startScale: 1, startX: 0, startY: 0, isPinching: false, isSwiping: false, scrubStartTime: 0 }
+      },
+      {
+        id: 2, delay: 60, vid: document.getElementById('vid2'), card: document.getElementById('card2'),
+        hud: document.getElementById('hud2'), scrubBadge: document.getElementById('scrubBadge2'),
+        badge: document.getElementById('badge2'), scrub: document.getElementById('scrub2'),
+        tag: document.getElementById('tag2'), liveWrap: document.getElementById('liveWrap2'),
+        ring: document.getElementById('ring2'), playBtn: document.getElementById('playBtn2'),
+        speedBtn: document.getElementById('speedBtn2'), mode: 'LIVE', speed: 1.0,
+        isReady: false, isUserSeeking: false, countdown: 0, timerId: null,
+        currentBlobUrl: null, hudHideTimeout: null,
+        scale: 1, panX: 0, panY: 0,
+        touchState: { startDist: 0, startScale: 1, startX: 0, startY: 0, isPinching: false, isSwiping: false, scrubStartTime: 0 }
+      }
+    ];
+
+    let stream = null;
+    let isRunning = false;
+    let currentGlobalSpeed = 1.0;
+    let gridsActive = false;
+    let isSafeMode = false;
+    let sessionStartTime = 0;
+    let mainLoopInterval = null;
+
+    let mediaRecorder = null;
+    let chunks = [];
+    let activeMasterUrl = null;
+    let activeUrlRegistry = new Set();
+
+    const mainToggleBtn = document.getElementById('mainToggleBtn');
+    const liveCam = document.getElementById('liveCam');
+    const timeReadout = document.getElementById('timeReadout');
+    const ramReadout = document.getElementById('ramReadout');
+    const fpsVal = document.getElementById('fpsVal');
+
+    // Initialisation tactile et gestures pour chaque écran
+    screens.forEach(s => {
+      initGestures(s);
+
+      s.scrub.addEventListener('mousedown', () => enterAnalysis(s.id));
+      s.scrub.addEventListener('touchstart', () => enterAnalysis(s.id), { passive: true });
+
+      s.scrub.addEventListener('input', (e) => {
+        s.isUserSeeking = true;
+        s.vid.currentTime = parseFloat(e.target.value);
+        updateTag(s.id);
+        resetInactivityTimer(s.id);
+      });
+
+      s.scrub.addEventListener('change', () => {
+        s.isUserSeeking = false;
+        resetInactivityTimer(s.id);
+      });
+
+      // Réveil du HUD au toucher ou au mouvement de souris
+      s.card.addEventListener('pointerdown', () => pokeHud(s.id));
+      s.card.addEventListener('pointermove', () => pokeHud(s.id));
+    });
+
+    // Gestion du Pinch-to-zoom et Swipe-to-scrub tactile
+    function initGestures(s) {
+      const card = s.card;
+
+      card.addEventListener('touchstart', (e) => {
+        pokeHud(s.id);
+
+        if (e.touches.length === 2) {
+          // Détection Pincement (Zoom)
+          s.touchState.isPinching = true;
+          s.touchState.isSwiping = false;
+          s.touchState.startDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          s.touchState.startScale = s.scale;
+        } else if (e.touches.length === 1) {
+          // Détection Glissement (Scrubbing ou Pan)
+          s.touchState.isPinching = false;
+          s.touchState.startX = e.touches[0].clientX;
+          s.touchState.startY = e.touches[0].clientY;
+          s.touchState.scrubStartTime = s.vid.currentTime;
+        }
+      }, { passive: true });
+
+      card.addEventListener('touchmove', (e) => {
+        if (s.touchState.isPinching && e.touches.length === 2) {
+          // Zoom à 2 doigts
+          const dist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          const factor = dist / s.touchState.startDist;
+          s.scale = Math.min(4, Math.max(1, s.touchState.startScale * factor));
+          applyTransform(s);
+        } else if (e.touches.length === 1 && !s.touchState.isPinching) {
+          const deltaX = e.touches[0].clientX - s.touchState.startX;
+          const deltaY = e.touches[0].clientY - s.touchState.startY;
+
+          if (s.scale > 1.05) {
+            // Si zoomé : déplacement panoramique dans l'image
+            s.panX += deltaX * 0.8;
+            s.panY += deltaY * 0.8;
+            s.touchState.startX = e.touches[0].clientX;
+            s.touchState.startY = e.touches[0].clientY;
+            applyTransform(s);
+          } else {
+            // Si échelle normale (1x) : Scrubbing gestuel au doigt !
+            if (Math.abs(deltaX) > 8) {
+              s.touchState.isSwiping = true;
+              enterAnalysis(s.id);
+
+              // 150px de swipe = 3 secondes de défilement
+              const timeOffset = (deltaX / 150) * 3;
+              s.vid.currentTime = Math.max(0, s.touchState.scrubStartTime + timeOffset);
+              s.scrub.value = s.vid.currentTime;
+              updateTag(s.id);
+
+              // Affichage de la grande pastille centrale
+              const elapsed = (Date.now() - sessionStartTime) / 1000;
+              const diff = Math.max(0, elapsed - s.vid.currentTime);
+              s.scrubBadge.textContent = `−${diff.toFixed(1)}s`;
+              s.scrubBadge.classList.add('visible');
+
+              resetInactivityTimer(s.id);
+            }
+          }
+        }
+      }, { passive: true });
+
+      card.addEventListener('touchend', () => {
+        s.touchState.isPinching = false;
+        s.touchState.isSwiping = false;
+        s.scrubBadge.classList.remove('visible');
+      });
+
+      // Double-tap : réinitialise le zoom à 1x
+      let lastTap = 0;
+      card.addEventListener('touchend', (e) => {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          s.scale = 1;
+          s.panX = 0;
+          s.panY = 0;
+          applyTransform(s);
+        }
+        lastTap = now;
+      });
+    }
+
+    function applyTransform(s) {
+      s.vid.style.transform = `scale(${s.scale}) translate(${s.panX / s.scale}px, ${s.panY / s.scale}px)`;
+    }
+
+    // Gestion du masquage automatique du HUD (Option 1.1)
+    function pokeHud(index) {
+      const s = screens[index];
+      s.hud.classList.remove('hidden');
+      clearTimeout(s.hudHideTimeout);
+
+      // Si le lecteur est en direct, on masque après 3s d'inactivité
+      if (s.mode === 'LIVE') {
+        s.hudHideTimeout = setTimeout(() => {
+          s.hud.classList.add('hidden');
+        }, 3000);
+      }
+    }
+
+    mainToggleBtn.addEventListener('click', async () => {
+      if (!isRunning) await startSession();
+      else stopSession();
+    });
+
+    async function startSession() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 60, min: 30 }
+          },
+          audio: false
+        });
+
+        liveCam.srcObject = stream;
+        await liveCam.play();
+
+        const track = stream.getVideoTracks()[0].getSettings();
+        if (track.frameRate) fpsVal.textContent = `${Math.round(track.frameRate)} fps`;
+
+        const mime = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1')
+          ? 'video/mp4;codecs=avc1'
+          : (MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' : '');
+
+        mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 5000000 } : {});
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            chunks.push(e.data);
+            rebuildStream();
+          }
+        };
+
+        mediaRecorder.start(1000);
+        isRunning = true;
+        sessionStartTime = Date.now();
+
+        mainToggleBtn.classList.add('is-recording');
+        mainToggleBtn.textContent = 'Arrêter la session';
+
+        mainLoopInterval = setInterval(engineTick, 250);
+
+      } catch (err) {
+        alert("Erreur caméra : " + err.message);
+      }
+    }
+
+    function rebuildStream() {
+      const totalBytes = chunks.reduce((acc, c) => acc + c.size, 0);
+      ramReadout.textContent = (totalBytes / (1024 * 1024)).toFixed(1) + " Mo";
+
+      const blob = new Blob(chunks, { type: chunks[0]?.type || 'video/mp4' });
+      const newUrl = URL.createObjectURL(blob);
+      activeUrlRegistry.add(newUrl);
+      activeMasterUrl = newUrl;
+
+      screens.forEach(s => {
+        if (s.isReady && s.mode === 'LIVE') {
+          const remaining = (s.vid.duration || 0) - s.vid.currentTime;
+          if (remaining < 2 || isNaN(remaining)) {
+            const pos = s.vid.currentTime;
+            s.currentBlobUrl = newUrl;
+            s.vid.src = newUrl;
+            s.vid.currentTime = pos;
+            s.vid.playbackRate = s.speed;
+            s.vid.play().catch(() => {});
+          }
+        }
+      });
+
+      // Purge sécurisée des URLs inactives
+      const used = new Set();
+      screens.forEach(s => { if (s.currentBlobUrl) used.add(s.currentBlobUrl); });
+      if (activeMasterUrl) used.add(activeMasterUrl);
+
+      activeUrlRegistry.forEach(url => {
+        if (!used.has(url)) {
+          URL.revokeObjectURL(url);
+          activeUrlRegistry.delete(url);
+        }
+      });
+    }
+
+    function engineTick() {
+      const elapsed = (Date.now() - sessionStartTime) / 1000;
+      timeReadout.textContent = `${Math.floor(elapsed)}s`;
+
+      screens.forEach(s => {
+        s.scrub.max = Math.max(1, elapsed);
+
+        if (!s.isReady) {
+          if (elapsed >= s.delay && activeMasterUrl) {
+            s.isReady = true;
+            s.currentBlobUrl = activeMasterUrl;
+            s.vid.src = activeMasterUrl;
+            s.vid.currentTime = Math.max(0, elapsed - s.delay);
+            s.vid.playbackRate = s.speed;
+            s.vid.play().catch(() => {});
+            pokeHud(s.id);
+          }
+        } else {
+          if (s.mode === 'LIVE') {
+            const targetPos = elapsed - s.delay;
+            if (!s.vid.paused && Math.abs(s.vid.currentTime - targetPos) > 1.2) {
+              s.vid.currentTime = targetPos;
+            }
+            s.scrub.value = s.vid.currentTime;
+            updateTag(s.id);
+          } else {
+            if (!s.isUserSeeking) {
+              s.scrub.value = s.vid.currentTime;
+              updateTag(s.id);
+            }
+          }
+        }
+      });
+    }
+
+    function updateTag(index) {
+      const s = screens[index];
+      const elapsed = (Date.now() - sessionStartTime) / 1000;
+      const diff = Math.max(0, elapsed - s.vid.currentTime);
+      s.tag.textContent = `-${diff.toFixed(1)}s`;
+    }
+
+    function enterAnalysis(index) {
+      const s = screens[index];
+      s.mode = 'ANALYSE';
+      s.badge.textContent = 'ANALYSE';
+      s.badge.classList.add('analysis');
+      s.liveWrap.classList.add('visible');
+      s.playBtn.textContent = s.vid.paused ? '▶' : '⏸';
+      s.hud.classList.remove('hidden');
+      clearTimeout(s.hudHideTimeout);
+      resetInactivityTimer(index);
+    }
+
+    // Gestion du compte à rebours circulaire SVG (Option 1.3)
+    function resetInactivityTimer(index) {
+      const s = screens[index];
+      clearInterval(s.timerId);
+      s.countdown = INACTIVITY_TIMEOUT;
+      updateRingProgress(s, 1.0);
+
+      s.timerId = setInterval(() => {
+        s.countdown -= 0.1;
+        const progress = Math.max(0, s.countdown / INACTIVITY_TIMEOUT);
+        updateRingProgress(s, progress);
+
+        if (s.countdown <= 0) {
+          returnToLive(index);
+        }
+      }, 100);
+    }
+
+    function updateRingProgress(s, progress) {
+      const offset = CIRCLE_CIRCUMFERENCE * (1 - progress);
+      s.ring.style.strokeDashoffset = offset;
+    }
+
+    function returnToLive(index) {
+      const s = screens[index];
+      clearInterval(s.timerId);
+      s.mode = 'LIVE';
+      s.badge.textContent = 'DIRECT';
+      s.badge.classList.remove('analysis');
+      s.liveWrap.classList.remove('visible');
+
+      s.speed = currentGlobalSpeed;
+      updateSpeedUI(index);
+
+      if (activeMasterUrl) {
+        const elapsed = (Date.now() - sessionStartTime) / 1000;
+        s.currentBlobUrl = activeMasterUrl;
+        s.vid.src = activeMasterUrl;
+        s.vid.currentTime = Math.max(0, elapsed - s.delay);
+        s.vid.playbackRate = s.speed;
+        s.vid.play().catch(() => {});
+      }
+      pokeHud(index);
+    }
+
+    function togglePlay(index) {
+      const s = screens[index];
+      enterAnalysis(index);
+
+      if (s.vid.paused) {
+        s.vid.play().catch(() => {});
+        s.playBtn.textContent = '⏸';
+      } else {
+        s.vid.pause();
+        s.playBtn.textContent = '▶';
+      }
+      resetInactivityTimer(index);
+    }
+
+    function jump(index, sec) {
+      const s = screens[index];
+      enterAnalysis(index);
+      s.vid.currentTime = Math.max(0, s.vid.currentTime + sec);
+      s.scrub.value = s.vid.currentTime;
+      updateTag(index);
+      resetInactivityTimer(index);
+    }
+
+    function stepFrame(index, dir) {
+      const s = screens[index];
+      enterAnalysis(index);
+      if (!s.vid.paused) {
+        s.vid.pause();
+        s.playBtn.textContent = '▶';
+      }
+      s.vid.currentTime = Math.max(0, s.vid.currentTime + (dir * FRAME_STEP));
+      s.scrub.value = s.vid.currentTime;
+      updateTag(index);
+      resetInactivityTimer(index);
+    }
+
+    function cycleSpeed(index) {
+      const s = screens[index];
+      const nextIdx = (SPEED_CYCLE.indexOf(s.speed) + 1) % SPEED_CYCLE.length;
+      s.speed = SPEED_CYCLE[nextIdx];
+      s.vid.playbackRate = s.speed;
+      updateSpeedUI(index);
+
+      if (s.speed < 1.0) enterAnalysis(index);
+      else resetInactivityTimer(index);
+    }
+
+    function updateSpeedUI(index) {
+      const s = screens[index];
+      s.speedBtn.textContent = `${s.speed}x`;
+      s.speedBtn.classList.toggle('slow', s.speed < 1.0);
+    }
+
+    function setGlobalSpeed(rate) {
+      currentGlobalSpeed = rate;
+      document.getElementById('rate10').classList.toggle('active', rate === 1.0);
+      document.getElementById('rate05').classList.toggle('active', rate === 0.5);
+      document.getElementById('rate02').classList.toggle('active', rate === 0.25);
+
+      screens.forEach(s => {
+        s.speed = rate;
+        s.vid.playbackRate = rate;
+        updateSpeedUI(s.id);
+      });
+    }
+
+    function adjustDelay(index, delta) {
+      screens[index].delay = Math.max(5, Math.min(90, screens[index].delay + delta));
+      const val = screens[index].delay;
+      document.getElementById(`val${index}`).textContent = `${val}s`;
+      document.getElementById(`labelDelay${index}`).textContent = `-${val}s`;
+    }
+
+    function toggleFullScreen(index) {
+      const card = screens[index].card;
+      card.classList.toggle('is-fullscreen');
+    }
+
+    function toggleGrids() {
+      gridsActive = !gridsActive;
+      document.getElementById('gridBtn').classList.toggle('active', gridsActive);
+      for (let i = 0; i < 3; i++) {
+        document.getElementById(`grid${i}`).classList.toggle('active', gridsActive);
+      }
+    }
+
+    // Mode cadenas / Verrouillage athlètes (Option 3.1)
+    function toggleSafeMode() {
+      isSafeMode = !isSafeMode;
+      const panel = document.getElementById('consolePanel');
+      const lockBtn = document.getElementById('lockBtn');
+      const lockIcon = document.getElementById('lockIcon');
+
+      panel.classList.toggle('is-locked', isSafeMode);
+      lockBtn.classList.toggle('locked', isSafeMode);
+      lockIcon.textContent = isSafeMode ? '🔒' : '🔓';
+    }
+
+    function stopSession() {
+      isRunning = false;
+      clearInterval(mainLoopInterval);
+
+      screens.forEach(s => {
+        clearInterval(s.timerId);
+        clearTimeout(s.hudHideTimeout);
+        s.isReady = false;
+        s.vid.src = "";
+        s.currentBlobUrl = null;
+        s.mode = 'LIVE';
+        s.speed = 1.0;
+        updateSpeedUI(s.id);
+        s.badge.textContent = 'DIRECT';
+        s.badge.classList.remove('analysis');
+        s.liveWrap.classList.remove('visible');
+        s.card.classList.remove('is-fullscreen');
+        s.scale = 1; s.panX = 0; s.panY = 0;
+        applyTransform(s);
+      });
+
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      liveCam.srcObject = null;
+
+      activeUrlRegistry.forEach(url => URL.revokeObjectURL(url));
+      activeUrlRegistry.clear();
+      activeMasterUrl = null;
+      chunks = [];
+
+      mainToggleBtn.classList.remove('is-recording');
+      mainToggleBtn.textContent = 'Démarrer la session';
+      timeReadout.textContent = "0s";
+      ramReadout.textContent = "0 Mo";
+    }
+  </script>
+</body>
+</html>
