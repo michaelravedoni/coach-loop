@@ -251,10 +251,10 @@ Ordre conseillé : **1 → 2 → 3 → 4**, puis le prototype du lot 5, puis 6 e
 
 ---
 
-## 8. Questions de produit (pour trancher)
+## 8. Décisions de produit (réponses de Michael, 2026-10-01)
 
-1. Pendant une **pause volontaire**, le retour au direct après 10 s est-il souhaité, ou la pause doit-elle rester figée jusqu'à action ?
-2. Durée maximale d'une séance visée sur iPad (30 min ? 2 h ?) : cela décide entre les niveaux A, B et C.
-3. Le **zoom lié** sur les 3 écrans t'intéresse-t-il ?
-4. Faut-il pouvoir **sauvegarder un extrait** (tout en gardant le principe « rien n'est envoyé ») ?
-5. Quelles versions d'iPadOS/Safari vises-tu au minimum ? (WebCodecs, Wake Lock et `requestVideoFrameCallback` dépendent de la version.)
+1. **Pause volontaire** : retour automatique au direct après 10 s, comportement actuel conservé.
+2. **Durée de séance** : stable et performant sans limite en théorie ; en pratique 20–25 min en moyenne, rarement plus de 40 min. À 5 Mb/s, 25 min représentent ≈ 0,9 Go et 40 min ≈ 1,5 Go : le niveau A seul (§5.2) ne suffit donc pas pour garantir une séance de 40 min sur iPad. Il faut un tampon plafonné (niveau B ou C).
+3. **Zoom lié** sur les 3 écrans : oui, **optionnel, activable par un bouton**.
+4. **Sauvegarde d'extrait** : non pour le moment.
+5. **Versions visées** : iPadOS 26 (ou plus récent). Wake Lock, `requestVideoFrameCallback` et WebCodecs y sont disponibles, ce qui rend le niveau C du §5.2 envisageable ; il reste à mesurer 3 décodeurs simultanés sur un vrai iPad.
