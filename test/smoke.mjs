@@ -114,7 +114,8 @@ try {
   await page.click('#mainToggleBtn');
   assert.equal(await page.evaluate(() => coachloop.recorder.epochs.length), 0);
   await page.click('#mainToggleBtn');
-  await wait(8000);
+  // Le premier écran (retard 5 s) doit repasser en direct ; on laisse jusqu'à 25 s aux machines lentes.
+  for (let i = 0; i < 50 && (await player(0, (p) => p.state)) !== 'LIVE'; i++) await wait(500);
   assert.equal(await player(0, (p) => p.state), 'LIVE', 'la session redémarre');
 
   assert.deepEqual(errors, [], 'aucune erreur JavaScript');
