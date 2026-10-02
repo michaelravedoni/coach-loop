@@ -125,7 +125,7 @@ export class Player {
 
   setDelay(seconds) {
     this.delay = seconds;
-    this.el.delayLabel.textContent = `-${seconds}s`;
+    this.el.delayLabel.textContent = `${seconds}s`;
   }
 
   setGrid(on) {
@@ -202,7 +202,7 @@ export class Player {
 
   #renderState() {
     const analyse = this.state === 'ANALYSE';
-    this.el.badge.textContent = analyse ? 'ANALYSE' : 'DIRECT';
+    this.el.badge.textContent = analyse ? 'ANALYSE' : 'AUTO';
     this.el.badge.classList.toggle('analysis', analyse);
     this.el.liveWrap.classList.toggle('visible', analyse);
     this.el.wait.hidden = this.state !== 'WAITING';

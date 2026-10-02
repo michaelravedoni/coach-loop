@@ -20,7 +20,13 @@ export function serve(port = 0) {
     if (!file.startsWith(root)) { res.writeHead(403).end(); return; }
     fs.readFile(file, (err, data) => {
       if (err) { res.writeHead(404).end(); return; }
-      res.writeHead(200, { 'content-type': types[path.extname(file).slice(1)] || 'application/octet-stream' });
+      const headers = { 'content-type': types[path.extname(file).slice(1)] || 'application/octet-stream' };
+      if (file.endsWith('sw.js') || file.endsWith('manifest.json')) {
+        headers['cache-control'] = 'no-cache, no-store, must-revalidate, max-age=0';
+        headers['pragma'] = 'no-cache';
+        headers['expires'] = '0';
+      }
+      res.writeHead(200, headers);
       res.end(data);
     });
   });

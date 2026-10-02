@@ -7,7 +7,7 @@
 //   version disponible » ; le rechargement n'a lieu qu'à la demande de l'utilisateur.
 //
 // À chaque modification de la liste des fichiers ci-dessous, incrémenter VERSION.
-const VERSION = 'coachloop-v2';
+const VERSION = 'coachloop-v2.1';
 const ASSETS = [
   './',
   './index.html',

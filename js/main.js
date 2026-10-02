@@ -111,7 +111,7 @@ function wireScreen(player) {
       case 'step-fwd': player.step(1); break;
       case 'jump-back': player.jump(-3); break;
       case 'jump-fwd': player.jump(3); break;
-      case 'speed': player.cycleSpeed(); break;
+      case 'speed': player.cycleSpeed(); syncRateButtons(); break;
       case 'live': player.returnToLive(); break;
       case 'fullscreen': toggleFullscreen(player); break;
     }
@@ -161,12 +161,14 @@ const rateButtons = [...document.querySelectorAll('[data-rate]')];
 rateButtons.forEach((btn) => btn.addEventListener('click', () => {
   const rate = Number(btn.dataset.rate);
   players.forEach((p) => p.setSpeed(rate));
+  syncRateButtons();
 }));
 function syncRateButtons() {
   const speeds = new Set(players.map((p) => p.speed));
   const common = speeds.size === 1 ? [...speeds][0] : null;
   rateButtons.forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.rate) === common));
 }
+syncRateButtons();
 
 const gridBtn = $('gridBtn');
 function renderGrid() {
@@ -181,7 +183,6 @@ const linkBtn = $('linkZoomBtn');
 function renderLink() {
   linkBtn.classList.toggle('active', linkZoom);
   linkBtn.setAttribute('aria-pressed', String(linkZoom));
-  linkBtn.textContent = `Zoom lié sur les 3 écrans : ${linkZoom ? 'oui' : 'non'}`;
 }
 linkBtn.addEventListener('click', () => {
   linkZoom = !linkZoom;
@@ -197,11 +198,15 @@ renderLink();
 // Verrou athlètes : un appui verrouille, un appui long (1 s) déverrouille
 const lockBtn = $('lockBtn');
 let lockTimer = null;
+const lockUnlockedSvg = `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>`;
+const lockLockedSvg = `<svg class="ui-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`;
+
 function renderLock() {
   consolePanel.classList.toggle('is-locked', isLocked);
   lockBtn.classList.toggle('locked', isLocked);
-  $('lockIcon').textContent = isLocked ? '🔒' : '🔓';
-  lockBtn.setAttribute('aria-label', isLocked ? 'Maintenir pour déverrouiller' : 'Verrouiller les réglages');
+  $('lockIcon').innerHTML = isLocked ? lockLockedSvg : lockUnlockedSvg;
+  $('lockText').textContent = isLocked ? 'Verrouillé (1s)' : 'Verrouiller';
+  lockBtn.setAttribute('aria-label', isLocked ? 'Maintenir 1 seconde pour déverrouiller' : 'Verrouiller les réglages');
 }
 let swallowClick = false;
 lockBtn.addEventListener('pointerdown', () => {
@@ -357,7 +362,7 @@ document.addEventListener('keydown', (e) => {
     case 'ArrowLeft': e.shiftKey ? player.jump(-3) : player.step(-1); break;
     case 'ArrowRight': e.shiftKey ? player.jump(3) : player.step(1); break;
     case 'l': case 'L': player.returnToLive(); break;
-    case 's': case 'S': player.cycleSpeed(); break;
+    case 's': case 'S': player.cycleSpeed(); syncRateButtons(); break;
     case '+': case '=': zoomBy(1.25); break;
     case '-': zoomBy(0.8); break;
     case '0': player.setView(identityView()); break;
@@ -387,7 +392,9 @@ function offerUpdate() {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js');
+      const reg = await navigator.serviceWorker.register('./sw.js', {
+        updateViaCache: 'none',
+      });
       if (!reg) return;
       const track = (worker) => { waitingWorker = worker; offerUpdate(); };
       if (reg.waiting && navigator.serviceWorker.controller) track(reg.waiting);

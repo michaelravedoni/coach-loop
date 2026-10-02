@@ -1,0 +1,10 @@
+# Configuration Apache / LiteSpeed pour CoachLoop PWA
+<IfModule mod_headers.c>
+  # Interdire la mise en cache HTTP du Service Worker et du Manifest PWA
+  # Garantit la détection immédiate des mises à jour sans désinstaller
+  <FilesMatch "(sw\.js|manifest\.json)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+  </FilesMatch>
+</IfModule>
